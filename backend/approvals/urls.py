@@ -1,5 +1,11 @@
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import ApprovalFlowViewSet, ApprovalRecordViewSet
+
+router = DefaultRouter()
+router.register(r'flows', ApprovalFlowViewSet, basename='approval-flow')
+router.register(r'records', ApprovalRecordViewSet, basename='approval-record')
 
 urlpatterns = [
-    # Will be added later
+    path('', include(router.urls)),
 ]
