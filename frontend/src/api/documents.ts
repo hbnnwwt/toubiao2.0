@@ -31,6 +31,8 @@ export interface UploadDocumentParams {
   name: string;
   file: File;
   document_type: string;
+  project_id?: number;
+  bid_id?: number;
 }
 
 export const documentsApi = {
@@ -52,6 +54,12 @@ export const documentsApi = {
     formData.append('name', data.name);
     formData.append('file', data.file);
     formData.append('document_type', data.document_type);
+    if (data.project_id) {
+      formData.append('project', String(data.project_id));
+    }
+    if (data.bid_id) {
+      formData.append('bid_submission', String(data.bid_id));
+    }
 
     const response = await client.post('/documents/', formData, {
       headers: {
