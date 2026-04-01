@@ -1,28 +1,52 @@
 import { useState } from 'react';
-import { Card, Table, Tag, Button, Space, Input, Select, Upload, message } from 'antd';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Card, Table, Tag, Button, Space, Input, Select, Upload, message, Spin } from 'antd';
 import { UploadOutlined, DownloadOutlined, EyeOutlined, DeleteOutlined, SearchOutlined, FolderOutlined } from '@ant-design/icons';
+import { documentsApi } from '../api';
 
 const { Option } = Select;
 
-const mockDocuments = [
-  { id: 1, name: '招标文件_市政府大楼.pdf', type: '招标文件', size: '2.5MB', uploadDate: '2026-03-15', uploader: '张三', status: '已完成' },
-  { id: 2, name: '技术方案_商业综合体.docx', type: '技术方案', size: '1.8MB', uploadDate: '2026-03-20', uploader: '李四', status: '处理中' },
-  { id: 3, name: '资质证书扫描件.pdf', type: '资质文件', size: '3.2MB', uploadDate: '2026-03-18', uploader: '王五', status: '已完成' },
-  { id: 4, name: '报价单_产业园.xlsx', type: '商务文件', size: '0.5MB', uploadDate: '2026-03-22', uploader: '张三', status: '已完成' },
-  { id: 5, name: '业绩证明材料.pdf', type: '业绩材料', size: '5.1MB', uploadDate: '2026-03-10', uploader: '李四', status: '已完成' },
-];
-
 const typeColors: Record<string, string> = {
-  '招标文件': 'blue',
-  '技术方案': 'purple',
-  '资质文件': 'green',
-  '商务文件': 'orange',
-  '业绩材料': 'cyan',
+  'bidding': 'blue',
+  'technical': 'purple',
+  ' qualification': 'green',
+  'business': 'orange',
+  'case': 'cyan',
+};
+
+const typeLabels: Record<string, string> = {
+  'bidding': '招标文件',
+  'technical': '技术方案',
+  'qualification': '资质文件',
+  'business': '商务文件',
+  'case': '业绩材料',
 };
 
 export default function Documents() {
   const [searchText, setSearchText] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
+  const queryClient = useQueryClient();
+
+  // 获取文档列表
+  const { data, isLoading } = useQuery({
+    queryKey: ['documents', typeFilter, searchText],
+    queryFn: () => documentsApi.getList({
+      document_type: typeFilter === 'all' ? undefined : typeFilter,
+      search: searchText || undefined,
+    }),
+  });
+
+  // 删除文档Mutation
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => documentsApi.delete(id),
+    onSuccess: () => {
+      message.success('删除成功');
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
+    },
+    onError: () => {
+      message.error('删除失败');
+    },
+  });
 
   const columns = [
     {
@@ -38,53 +62,73 @@ export default function Documents() {
     },
     {
       title: '类型',
-      dataIndex: 'type',
-      key: 'type',
-      render: (type: string) => <Tag color={typeColors[type]}>{type}</Tag>,
+      dataIndex: 'document_type',
+      key: 'document_type',
+      render: (type: string) => (
+        <Tag color={typeColors[type] || 'default'}>
+          {typeLabels[type] || type}
+        </Tag>
+      ),
     },
     {
       title: '大小',
-      dataIndex: 'size',
-      key: 'size',
+      dataIndex: 'file_size',
+      key: 'file_size',
+      render: (size: number) => size ? `${(size / 1024 / 1024).toFixed(2)} MB` : '-',
     },
     {
       title: '上传时间',
-      dataIndex: 'uploadDate',
-      key: 'uploadDate',
+      dataIndex: 'uploaded_at',
+      key: 'uploaded_at',
+      render: (val: string) => val?.split('T')[0] || '-',
     },
     {
       title: '上传人',
-      dataIndex: 'uploader',
-      key: 'uploader',
+      dataIndex: 'uploaded_by_name',
+      key: 'uploaded_by_name',
+      render: (val: string) => val || '-',
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
       render: (status: string) => (
-        <Tag color={status === '已完成' ? 'green' : 'orange'}>
-          {status}
+        <Tag color={status === 'completed' ? 'green' : 'orange'}>
+          {status === 'completed' ? '已完成' : '处理中'}
         </Tag>
       ),
     },
     {
       title: '操作',
       key: 'action',
-      render: () => (
+      render: (_: unknown, record: { id: number }) => (
         <Space>
           <Button size="small" icon={<EyeOutlined />}>预览</Button>
           <Button size="small" icon={<DownloadOutlined />}>下载</Button>
-          <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+          <Button
+            size="small"
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() => {
+              if (window.confirm('确定要删除该文档吗?')) {
+                deleteMutation.mutate(record.id);
+              }
+            }}
+          >
+            删除
+          </Button>
         </Space>
       ),
     },
   ];
 
-  const filteredData = mockDocuments.filter(doc => {
-    const matchSearch = !searchText || doc.name.includes(searchText);
-    const matchType = typeFilter === 'all' || doc.type === typeFilter;
-    return matchSearch && matchType;
-  });
+  if (isLoading) {
+    return (
+      <div style={{ textAlign: 'center', padding: 48 }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -102,25 +146,33 @@ export default function Documents() {
               value={typeFilter}
               onChange={setTypeFilter}
               style={{ width: 120 }}
+              loading={isLoading}
             >
               <Option value="all">全部类型</Option>
-              <Option value="招标文件">招标文件</Option>
-              <Option value="技术方案">技术方案</Option>
-              <Option value="资质文件">资质文件</Option>
-              <Option value="商务文件">商务文件</Option>
-              <Option value="业绩材料">业绩材料</Option>
+              <Option value="bidding">招标文件</Option>
+              <Option value="technical">技术方案</Option>
+              <Option value="qualification">资质文件</Option>
+              <Option value="business">商务文件</Option>
+              <Option value="case">业绩材料</Option>
             </Select>
           </Space>
-          <Upload>
-            <Button type="primary" icon={<UploadOutlined />} onClick={() => message.info('点击选择文件上传')}>
+          <Upload
+            showUploadList={false}
+            beforeUpload={() => {
+              message.info('上传功能开发中');
+              return false;
+            }}
+          >
+            <Button type="primary" icon={<UploadOutlined />}>
               上传文档
             </Button>
           </Upload>
         </div>
         <Table
           columns={columns}
-          dataSource={filteredData}
+          dataSource={data?.results || []}
           rowKey="id"
+          loading={isLoading}
           pagination={{ pageSize: 10 }}
         />
       </Card>

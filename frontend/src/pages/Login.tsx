@@ -4,18 +4,27 @@ import { useState } from 'react';
 import { Form, Input, Button, Card, message } from 'antd';
 import { User, Lock } from '@phosphor-icons/react';
 import { useNavigate } from 'react-router-dom';
+import { authApi } from '../api';
+import { useUserStore } from '../api/store/userStore';
 
 export default function Login() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const setAuth = useUserStore((state) => state.setAuth);
 
-  const onFinish = async (_values: { username: string; password: string }) => {
+  const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
+    try {
+      const response = await authApi.login(values);
+      setAuth(response.access_token, response.user);
       message.success('登录成功');
       navigate('/dashboard');
-    }, 1000);
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { detail?: string } } };
+      message.error(err.response?.data?.detail || '登录失败，请检查账号密码');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

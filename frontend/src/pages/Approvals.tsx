@@ -1,39 +1,80 @@
 import { useState } from 'react';
-import { Card, Tabs, Table, Tag, Button, Space, Modal, Input, message } from 'antd';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Card, Tabs, Table, Tag, Button, Space, Modal, Input, message, Spin } from 'antd';
 import { CheckOutlined, CloseOutlined, EyeOutlined, FileTextOutlined } from '@ant-design/icons';
+import { approvalsApi } from '../api';
 
 const { TextArea } = Input;
-
-const mockPending = [
-  { id: 1, project: '市政府大楼', type: '投标提交', applicant: '张三', applyDate: '2026-03-30 14:30', status: 'pending' },
-  { id: 2, project: '商业综合体', type: '资质补充', applicant: '李四', applyDate: '2026-03-30 10:15', status: 'pending' },
-];
-
-const mockApproved = [
-  { id: 3, project: '产业园', type: '中标确认', applicant: '王五', applyDate: '2026-03-29 16:20', result: '通过', resultDate: '2026-03-29 17:00' },
-  { id: 4, project: '住宅小区', type: '项目立项', applicant: '张三', applyDate: '2026-03-28 09:00', result: '通过', resultDate: '2026-03-28 10:30' },
-];
 
 export default function Approvals() {
   const [activeTab, setActiveTab] = useState('pending');
   const [reviewModalVisible, setReviewModalVisible] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<any>(null);
+  const [selectedItem, setSelectedItem] = useState<number | null>(null);
+  const [comment, setComment] = useState('');
+  const queryClient = useQueryClient();
+
+  // 获取待审批列表
+  const { data: pendingData, isLoading: pendingLoading } = useQuery({
+    queryKey: ['approvals-pending'],
+    queryFn: () => approvalsApi.getPending(),
+    enabled: activeTab === 'pending',
+  });
+
+  // 获取已审批列表
+  const { data: approvedData, isLoading: approvedLoading } = useQuery({
+    queryKey: ['approvals-approved'],
+    queryFn: () => approvalsApi.getRecords({ status: 'approved' }),
+    enabled: activeTab === 'approved',
+  });
+
+  const isLoading = activeTab === 'pending' ? pendingLoading : approvedLoading;
+  const currentData = activeTab === 'pending' ? pendingData?.results : approvedData?.results;
+
+  // 审批通过Mutation
+  const approveMutation = useMutation({
+    mutationFn: (id: number) => approvalsApi.approve(id, { comment }),
+    onSuccess: () => {
+      message.success('审批通过');
+      setReviewModalVisible(false);
+      setComment('');
+      queryClient.invalidateQueries({ queryKey: ['approvals-pending'] });
+      queryClient.invalidateQueries({ queryKey: ['approvals-approved'] });
+    },
+    onError: () => {
+      message.error('操作失败');
+    },
+  });
+
+  // 审批驳回Mutation
+  const rejectMutation = useMutation({
+    mutationFn: (id: number) => approvalsApi.reject(id, { comment }),
+    onSuccess: () => {
+      message.success('已驳回');
+      setReviewModalVisible(false);
+      setComment('');
+      queryClient.invalidateQueries({ queryKey: ['approvals-pending'] });
+      queryClient.invalidateQueries({ queryKey: ['approvals-approved'] });
+    },
+    onError: () => {
+      message.error('操作失败');
+    },
+  });
 
   const pendingColumns = [
     {
       title: '项目',
-      dataIndex: 'project',
-      key: 'project',
+      dataIndex: 'project_name',
+      key: 'project_name',
       render: (text: string) => (
         <Space>
           <FileTextOutlined style={{ color: '#64748B' }} />
-          <span style={{ fontWeight: 500 }}>{text}</span>
+          <span style={{ fontWeight: 500 }}>{text || '-'}</span>
         </Space>
       ),
     },
     { title: '申请类型', dataIndex: 'type', key: 'type' },
-    { title: '申请人', dataIndex: 'applicant', key: 'applicant' },
-    { title: '申请时间', dataIndex: 'applyDate', key: 'applyDate' },
+    { title: '申请人', dataIndex: 'applicant_name', key: 'applicant_name' },
+    { title: '申请时间', dataIndex: 'applied_at', key: 'applied_at', render: (val: string) => val?.split('T')[0] || '-' },
     {
       title: '状态',
       dataIndex: 'status',
@@ -43,20 +84,29 @@ export default function Approvals() {
     {
       title: '操作',
       key: 'action',
-      render: (_: any, record: any) => (
+      render: (_: unknown, record: { id: number }) => (
         <Space>
           <Button
             size="small"
             type="primary"
             icon={<CheckOutlined />}
             onClick={() => {
-              setSelectedItem(record);
+              setSelectedItem(record.id);
               setReviewModalVisible(true);
             }}
           >
             审批
           </Button>
-          <Button size="small" danger icon={<CloseOutlined />}>
+          <Button
+            size="small"
+            danger
+            icon={<CloseOutlined />}
+            onClick={() => {
+              if (window.confirm('确定要驳回吗?')) {
+                rejectMutation.mutate(record.id);
+              }
+            }}
+          >
             驳回
           </Button>
         </Space>
@@ -65,14 +115,22 @@ export default function Approvals() {
   ];
 
   const approvedColumns = [
-    { title: '项目', dataIndex: 'project', key: 'project', render: (text: string) => <span style={{ fontWeight: 500 }}>{text}</span> },
+    { title: '项目', dataIndex: 'project_name', key: 'project_name', render: (text: string) => <span style={{ fontWeight: 500 }}>{text || '-'}</span> },
     { title: '申请类型', dataIndex: 'type', key: 'type' },
-    { title: '申请人', dataIndex: 'applicant', key: 'applicant' },
-    { title: '申请时间', dataIndex: 'applyDate', key: 'applyDate' },
-    { title: '审批结果', dataIndex: 'result', key: 'result', render: (r: string) => <Tag color={r === '通过' ? 'green' : 'red'}>{r}</Tag> },
-    { title: '审批时间', dataIndex: 'resultDate', key: 'resultDate' },
+    { title: '申请人', dataIndex: 'applicant_name', key: 'applicant_name' },
+    { title: '申请时间', dataIndex: 'applied_at', key: 'applied_at', render: (val: string) => val?.split('T')[0] || '-' },
+    { title: '审批结果', dataIndex: 'result', key: 'result', render: (r: string) => <Tag color={r === 'approved' ? 'green' : 'red'}>{r === 'approved' ? '通过' : '驳回'}</Tag> },
+    { title: '审批时间', dataIndex: 'processed_at', key: 'processed_at', render: (val: string) => val?.split('T')[0] || '-' },
     { title: '操作', key: 'action', render: () => <Button size="small" icon={<EyeOutlined />}>查看</Button> },
   ];
+
+  if (isLoading) {
+    return (
+      <div style={{ textAlign: 'center', padding: 48 }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -83,25 +141,27 @@ export default function Approvals() {
           items={[
             {
               key: 'pending',
-              label: `我的待办 (${mockPending.length})`,
+              label: `我的待办 (${pendingData?.count || 0})`,
               children: (
                 <Table
                   columns={pendingColumns}
-                  dataSource={mockPending}
+                  dataSource={currentData || []}
                   rowKey="id"
                   pagination={false}
+                  loading={pendingLoading}
                 />
               ),
             },
             {
               key: 'approved',
-              label: `我的已办 (${mockApproved.length})`,
+              label: `我的已办 (${approvedData?.count || 0})`,
               children: (
                 <Table
                   columns={approvedColumns}
-                  dataSource={mockApproved}
+                  dataSource={currentData || []}
                   rowKey="id"
                   pagination={false}
+                  loading={approvedLoading}
                 />
               ),
             },
@@ -112,46 +172,53 @@ export default function Approvals() {
       <Modal
         title="审批"
         open={reviewModalVisible}
-        onCancel={() => setReviewModalVisible(false)}
+        onCancel={() => {
+          setReviewModalVisible(false);
+          setComment('');
+        }}
         footer={null}
       >
-        {selectedItem && (
-          <div>
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ color: '#64748B', marginBottom: 4 }}>项目</div>
-              <div style={{ fontWeight: 500 }}>{selectedItem.project}</div>
-            </div>
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ color: '#64748B', marginBottom: 4 }}>申请类型</div>
-              <div>{selectedItem.type}</div>
-            </div>
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ color: '#64748B', marginBottom: 4 }}>审批意见</div>
-              <TextArea rows={4} placeholder="请输入审批意见" />
-            </div>
-            <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-              <Button onClick={() => setReviewModalVisible(false)}>取消</Button>
-              <Button
-                danger
-                onClick={() => {
-                  message.success('已驳回');
-                  setReviewModalVisible(false);
-                }}
-              >
-                驳回
-              </Button>
-              <Button
-                type="primary"
-                onClick={() => {
-                  message.success('已通过');
-                  setReviewModalVisible(false);
-                }}
-              >
-                通过
-              </Button>
-            </Space>
+        <div>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ color: '#64748B', marginBottom: 4 }}>审批意见</div>
+            <TextArea
+              rows={4}
+              placeholder="请输入审批意见"
+              value={comment}
+              onChange={e => setComment(e.target.value)}
+            />
           </div>
-        )}
+          <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+            <Button onClick={() => {
+              setReviewModalVisible(false);
+              setComment('');
+            }}>
+              取消
+            </Button>
+            <Button
+              danger
+              onClick={() => {
+                if (selectedItem) {
+                  rejectMutation.mutate(selectedItem);
+                }
+              }}
+              loading={rejectMutation.isPending}
+            >
+              驳回
+            </Button>
+            <Button
+              type="primary"
+              onClick={() => {
+                if (selectedItem) {
+                  approveMutation.mutate(selectedItem);
+                }
+              }}
+              loading={approveMutation.isPending}
+            >
+              通过
+            </Button>
+          </Space>
+        </div>
       </Modal>
     </div>
   );
