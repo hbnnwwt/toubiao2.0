@@ -18,6 +18,8 @@ export interface DocumentListParams {
   search?: string;
   page?: number;
   page_size?: number;
+  project_id?: number;
+  bid_id?: number;
 }
 
 interface DocumentListResponse {

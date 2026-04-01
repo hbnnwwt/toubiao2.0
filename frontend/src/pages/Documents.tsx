@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Card, Table, Tag, Button, Space, Input, Select, Upload, message, Spin } from 'antd';
+import { Card, Table, Tag, Button, Space, Input, Select, message, Spin } from 'antd';
 import { UploadOutlined, DownloadOutlined, EyeOutlined, DeleteOutlined, SearchOutlined, FolderOutlined } from '@ant-design/icons';
 import { documentsApi } from '../api';
+import UploadModal from '../components/UploadModal';
 
 const { Option } = Select;
 
@@ -25,6 +26,7 @@ const typeLabels: Record<string, string> = {
 export default function Documents() {
   const [searchText, setSearchText] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
+  const [uploadModalVisible, setUploadModalVisible] = useState(false);
   const queryClient = useQueryClient();
 
   // 获取文档列表
@@ -156,17 +158,9 @@ export default function Documents() {
               <Option value="case">业绩材料</Option>
             </Select>
           </Space>
-          <Upload
-            showUploadList={false}
-            beforeUpload={() => {
-              message.info('上传功能开发中');
-              return false;
-            }}
-          >
-            <Button type="primary" icon={<UploadOutlined />}>
+          <Button type="primary" icon={<UploadOutlined />} onClick={() => setUploadModalVisible(true)}>
               上传文档
             </Button>
-          </Upload>
         </div>
         <Table
           columns={columns}
@@ -176,6 +170,14 @@ export default function Documents() {
           pagination={{ pageSize: 10 }}
         />
       </Card>
+
+      <UploadModal
+        visible={uploadModalVisible}
+        onClose={() => setUploadModalVisible(false)}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ['documents'] });
+        }}
+      />
     </div>
   );
 }

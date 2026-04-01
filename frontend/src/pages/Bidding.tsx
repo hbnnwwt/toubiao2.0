@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Card, Row, Col, Tabs, Form, Input, InputNumber, Button, Space, Tag, message, Spin } from 'antd';
-import { SaveOutlined, SendOutlined, BulbOutlined } from '@ant-design/icons';
-import { biddingApi, projectsApi } from '../api';
+import { Card, Row, Col, Tabs, Form, Input, InputNumber, Button, Space, Tag, Table, message, Spin } from 'antd';
+import { SaveOutlined, SendOutlined, BulbOutlined, UploadOutlined, DownloadOutlined, DeleteOutlined } from '@ant-design/icons';
+import { biddingApi, projectsApi, documentsApi, type Document } from '../api';
+import UploadModal from '../components/UploadModal';
 
 const { TextArea } = Input;
 
@@ -13,6 +14,7 @@ export default function Bidding() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('business');
   const [form] = Form.useForm();
+  const [uploadModalVisible, setUploadModalVisible] = useState(false);
 
   const selectedProjectId = projectId ? Number(projectId) : null;
 
@@ -65,6 +67,25 @@ export default function Bidding() {
     },
     onError: () => {
       message.error('提交失败');
+    },
+  });
+
+  // 获取投标附件列表
+  const { data: attachments, refetch: refetchAttachments } = useQuery({
+    queryKey: ['documents', 'bid', currentBid?.id],
+    queryFn: () => documentsApi.getList({ bid_id: currentBid?.id }),
+    enabled: !!currentBid?.id,
+  });
+
+  // 删除附件Mutation
+  const deleteAttachmentMutation = useMutation({
+    mutationFn: (id: number) => documentsApi.delete(id),
+    onSuccess: () => {
+      message.success('删除成功');
+      refetchAttachments();
+    },
+    onError: () => {
+      message.error('删除失败');
     },
   });
 
@@ -208,11 +229,67 @@ export default function Bidding() {
                     <Tag>未创建</Tag>
                   )}
                 </Card>
+
+                {currentBid && (
+                  <Card
+                    title="投标附件"
+                    size="small"
+                    extra={
+                      <Button
+                        size="small"
+                        icon={<UploadOutlined />}
+                        onClick={() => setUploadModalVisible(true)}
+                      >
+                        上传
+                      </Button>
+                    }
+                    style={{ marginTop: 16 }}
+                  >
+                    <Table
+                      size="small"
+                      dataSource={attachments?.results || []}
+                      rowKey="id"
+                      pagination={false}
+                      columns={[
+                        { title: '文件名', dataIndex: 'name', key: 'name' },
+                        {
+                          title: '操作',
+                          key: 'action',
+                          render: (_: unknown, record: Document) => (
+                            <Space size="small">
+                              <Button size="small" icon={<DownloadOutlined />}>下载</Button>
+                              <Button
+                                size="small"
+                                danger
+                                icon={<DeleteOutlined />}
+                                onClick={() => {
+                                  if (window.confirm('确定删除?')) {
+                                    deleteAttachmentMutation.mutate(record.id);
+                                  }
+                                }}
+                              />
+                            </Space>
+                          ),
+                        },
+                      ]}
+                    />
+                  </Card>
+                )}
               </Col>
             </Row>
           </>
         )}
       </Card>
+
+      <UploadModal
+        visible={uploadModalVisible}
+        onClose={() => setUploadModalVisible(false)}
+        onSuccess={() => {
+          refetchAttachments();
+        }}
+        bidId={currentBid?.id}
+        projectId={selectedProjectId || undefined}
+      />
     </div>
   );
 }
